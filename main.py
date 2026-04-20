@@ -93,39 +93,16 @@ user_id = get_user_id()
 # Sidebar
 # ---------------------------------------------------------------------------
 
-with st.sidebar.expander("User Profile"):
+if st.sidebar.button("Clear History"):
     cursor = conn.cursor()
-    cursor.execute("SELECT display_name FROM users WHERE id = ?", (user_id,))
-    result = cursor.fetchone()
-    current_name = result[0] if result else None
+    cursor.execute("DELETE FROM messages WHERE session_id IN (SELECT id FROM chat_sessions WHERE user_id = ?)", (user_id,))
+    cursor.execute("DELETE FROM chat_sessions WHERE user_id = ?", (user_id,))
+    conn.commit()
+    st.session_state["messages"] = [
+        {"role": "assistant", "content": "Hi! I'm the King Arthur Baking assistant. How can I help you today?"}
+    ]
+    st.success("Chat history cleared.")
 
-    new_name = st.text_input("Your Name", value=current_name or "")
-    if new_name and new_name != current_name:
-        cursor.execute("""
-            INSERT OR REPLACE INTO users (id, created_at, last_seen, display_name)
-            VALUES (?, ?, ?, ?)
-        """, (user_id, datetime.now(), datetime.now(), new_name))
-        conn.commit()
-        st.success("Name updated!")
-
-col_new, col_clear = st.sidebar.columns(2)
-with col_new:
-    if st.button("New Chat"):
-        st.session_state["messages"] = [
-            {"role": "assistant", "content": "Hi! I'm the King Arthur Baking assistant. How can I help you today?"}
-        ]
-with col_clear:
-    if st.button("Clear History"):
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM messages WHERE session_id IN (SELECT id FROM chat_sessions WHERE user_id = ?)", (user_id,))
-        cursor.execute("DELETE FROM chat_sessions WHERE user_id = ?", (user_id,))
-        conn.commit()
-        st.session_state["messages"] = [
-            {"role": "assistant", "content": "Hi! I'm the King Arthur Baking assistant. How can I help you today?"}
-        ]
-        st.success("Chat history cleared.")
-
-st.sidebar.title("Chat History")
 chat_history = load_chat_history(conn, user_id)
 
 with st.sidebar.expander("Previous Chats"):
