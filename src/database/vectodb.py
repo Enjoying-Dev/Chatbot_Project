@@ -87,6 +87,31 @@ class PineconeService:
         return "\n".join(parts)
 
     @staticmethod
+    def _first_image_url(product: dict) -> str:
+        """Pull the first image URL out of a product dict.
+
+        `images` may be a JSON string (when coming from MySQL row dicts) or a
+        list of {alt, data} objects (when coming straight from the scraper).
+        """
+        images = product.get("images")
+        if isinstance(images, str):
+            try:
+                import json as _json
+                images = _json.loads(images)
+            except Exception:
+                return ""
+        if not isinstance(images, list) or not images:
+            return ""
+        first = images[0]
+        if isinstance(first, dict):
+            url = first.get("data") or first.get("url") or ""
+        elif isinstance(first, str):
+            url = first
+        else:
+            url = ""
+        return url.replace("{:size}", "500x659") if url else ""
+
+    @staticmethod
     def _build_metadata(product: dict, text: str) -> dict:
         """Build Pinecone metadata, replacing None with safe defaults."""
         return {
@@ -104,6 +129,7 @@ class PineconeService:
             "non_gmo": product.get("non_gmo") or False,
             "whole_grain": product.get("whole_grain") or False,
             "url": product.get("url") or "",
+            "image": PineconeService._first_image_url(product),
             "text": text[:9500],
         }
 
