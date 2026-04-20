@@ -1,0 +1,53 @@
+from typing import List, Dict
+from langgraph.graph import StateGraph, START
+from langchain_openai import ChatOpenAI
+
+from src.config.settings import OPENAI_API_KEY, ModelType
+from src.Agent.graph.graph_state import GraphState, DatabaseEnum
+from src.Agent.graph.graph_nodes import (
+    determine_database,
+    txt2sql_node,
+    data_retrieval_node,
+)
+
+
+class ChatService:
+    def __init__(self):
+        self.graph = self._build_graph()
+        self.model = ChatOpenAI(
+            model=ModelType.gpt4o,
+            openai_api_key=OPENAI_API_KEY,
+        )
+
+    @staticmethod
+    def _build_graph():
+        workflow = StateGraph(state_schema=GraphState)
+
+        workflow.add_node("txt2sql", txt2sql_node)
+        workflow.add_node("data_retrieval", data_retrieval_node)
+
+        workflow.add_conditional_edges(
+            START,
+            determine_database,
+            {
+                DatabaseEnum.MYSQL: "txt2sql",
+                DatabaseEnum.VECTORDB: "data_retrieval",
+            },
+        )
+
+        workflow.add_edge("txt2sql", "data_retrieval")
+        workflow.set_finish_point("data_retrieval")
+
+        return workflow.compile()
+
+    def process_message(self, query: str, conversation_history: List[Dict[str, str]]) -> dict:
+        messages = conversation_history + [{"role": "user", "content": query}]
+        initial_state = GraphState(messages=messages, query=query)
+        final_state = self.graph.invoke(initial_state)
+        return {
+            "response": final_state["messages"][-1]["content"],
+            "context": final_state["context"],
+        }
+
+
+chat_service = ChatService()
