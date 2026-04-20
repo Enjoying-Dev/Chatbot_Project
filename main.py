@@ -2,7 +2,27 @@ import streamlit as st
 import sqlite3
 import uuid
 from datetime import datetime
+from pathlib import Path
+
 from src.Agent.chat import chat_service
+from src.Agent.graph.export_diagram import write_compiled_graph_png
+
+_ROOT = Path(__file__).resolve().parent
+LANGGRAPH_STATUS_PNG = _ROOT / "assets" / "langgraph_status.png"
+
+
+def ensure_langgraph_status_png() -> None:
+    """Create the sidebar PNG once via Mermaid API if the file is not present."""
+    if LANGGRAPH_STATUS_PNG.is_file():
+        return
+    if st.session_state.get("_langgraph_png_attempted"):
+        return
+    st.session_state["_langgraph_png_attempted"] = True
+    try:
+        write_compiled_graph_png(chat_service.graph, LANGGRAPH_STATUS_PNG)
+        st.session_state.pop("_langgraph_png_error", None)
+    except Exception as exc:
+        st.session_state["_langgraph_png_error"] = str(exc)
 
 # ---------------------------------------------------------------------------
 # SQLite — lightweight local store for conversation history (not product data)
@@ -92,6 +112,19 @@ user_id = get_user_id()
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
+
+ensure_langgraph_status_png()
+
+st.sidebar.subheader("LangGraph status")
+if LANGGRAPH_STATUS_PNG.is_file():
+    st.sidebar.image(str(LANGGRAPH_STATUS_PNG), use_container_width=True)
+else:
+    err = st.session_state.get("_langgraph_png_error")
+    st.sidebar.caption(
+        "Could not build the diagram PNG (needs internet for the Mermaid API). "
+        f"Run from project root: `py scripts/export_langgraph_png.py`"
+        + (f" Last error: {err}" if err else "")
+    )
 
 if st.sidebar.button("Clear History"):
     cursor = conn.cursor()
