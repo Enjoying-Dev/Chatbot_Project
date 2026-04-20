@@ -105,15 +105,18 @@ def seed_pinecone(products: List[dict]):
     print("Pinecone seeding complete.")
 
 
-def seed_all():
+def seed_all(include_pinecone: bool = False):
     raw = load_products()
     print(f"Loaded {len(raw)} products from {DATA_PATH}")
     products = transform_all(raw)
 
     seed_mysql(products)
-    seed_pinecone(products)
 
-    print(f"Done — {len(products)} products seeded into both databases.")
+    if include_pinecone:
+        seed_pinecone(products)
+        print(f"Done — {len(products)} products seeded into both databases.")
+    else:
+        print(f"Done — {len(products)} products seeded into MySQL (Pinecone skipped).")
 
 
 if __name__ == "__main__":

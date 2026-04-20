@@ -49,7 +49,7 @@ class MySQLService:
             name VARCHAR(255),
             url VARCHAR(500),
             brand VARCHAR(100),
-            price VARCHAR(20),
+            price VARCHAR(100),
             price_value FLOAT,
             currency VARCHAR(10) DEFAULT 'USD',
             new_tag VARCHAR(50),
