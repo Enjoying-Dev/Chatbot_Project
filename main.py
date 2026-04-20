@@ -115,27 +115,6 @@ user_id = get_user_id()
 
 ensure_langgraph_status_png()
 
-st.sidebar.subheader("LangGraph status")
-if LANGGRAPH_STATUS_PNG.is_file():
-    st.sidebar.image(str(LANGGRAPH_STATUS_PNG), use_container_width=True)
-else:
-    err = st.session_state.get("_langgraph_png_error")
-    st.sidebar.caption(
-        "Could not build the diagram PNG (needs internet for the Mermaid API). "
-        f"Run from project root: `py scripts/export_langgraph_png.py`"
-        + (f" Last error: {err}" if err else "")
-    )
-
-if st.sidebar.button("Clear History"):
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM messages WHERE session_id IN (SELECT id FROM chat_sessions WHERE user_id = ?)", (user_id,))
-    cursor.execute("DELETE FROM chat_sessions WHERE user_id = ?", (user_id,))
-    conn.commit()
-    st.session_state["messages"] = [
-        {"role": "assistant", "content": "Hi! I'm the King Arthur Baking assistant. How can I help you today?"}
-    ]
-    st.success("Chat history cleared.")
-
 chat_history = load_chat_history(conn, user_id)
 
 with st.sidebar.expander("Previous Chats"):
@@ -150,6 +129,32 @@ with st.sidebar.expander("Previous Chats"):
                 ]
     else:
         st.write("No chat history available.")
+
+if st.sidebar.button("Clear History"):
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM messages WHERE session_id IN (SELECT id FROM chat_sessions WHERE user_id = ?)", (user_id,))
+    cursor.execute("DELETE FROM chat_sessions WHERE user_id = ?", (user_id,))
+    conn.commit()
+    st.session_state["messages"] = [
+        {"role": "assistant", "content": "Hi! I'm the King Arthur Baking assistant. How can I help you today?"}
+    ]
+    st.success("Chat history cleared.")
+
+_, langgraph_col, _ = st.sidebar.columns([1, 6, 1])
+with langgraph_col:
+    st.markdown(
+        '<p style="text-align:center;font-size:1.05rem;font-weight:600;">LangGraph Diagram</p>',
+        unsafe_allow_html=True,
+    )
+    if LANGGRAPH_STATUS_PNG.is_file():
+        st.image(str(LANGGRAPH_STATUS_PNG), use_container_width=True)
+    else:
+        err = st.session_state.get("_langgraph_png_error")
+        st.caption(
+            "Could not build the diagram PNG (needs internet for the Mermaid API). "
+            "Run from project root: `py scripts/export_langgraph_png.py`"
+            + (f" Last error: {err}" if err else "")
+        )
 
 # ---------------------------------------------------------------------------
 # Main chat area
