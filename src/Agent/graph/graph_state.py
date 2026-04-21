@@ -27,3 +27,8 @@ class GraphState(BaseModel):
 
     context: Optional[str] = None
     fallback_used: Optional[str] = None
+
+    # LangGraph loop: classify → retrieve → evaluate → (retrieve | respond)
+    last_retrieval_source: Optional[str] = None  # "mysql" | "vector"
+    evaluation_route: Optional[str] = None  # "mysql_retrieval" | "vector_retrieval" | "respond"
+    retrieval_iterations: int = 0

@@ -9,11 +9,13 @@ from src.config.settings import OPENAI_API_KEY, ModelType
 from src.database.vectodb import pinecone_db
 from src.database.mysql import mysql_db
 from src.prompt_set.sql_vector import sql_vector
+from src.prompt_set.reasoning_prompt import evaluate_retrieval_prompt
 from src.prompt_set.generate_sql import generate_sql
 from src.prompt_set.generate_response import generate_response
 from src.prompt_set.sql_prompt_generater import sql_prompt_generater
 from src.prompt_set.vectordb_prompt_generator import vectordb_prompt_generator
 from src.Agent.tools.sql_vector_tool import sql_vector_tool
+from src.Agent.tools.reasoning_evaluation_tool import reasoning_evaluation_tool
 from .graph_state import GraphState, DatabaseEnum
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,7 @@ model = ChatOpenAI(
 )
 
 MAX_SQL_ATTEMPTS = 3
+MAX_RETRIEVAL_ITERATIONS = 5
 TOP_K_VECTOR = 5
 TOP_K_MYSQL_DEFAULT_LIMIT = 5
 
@@ -180,6 +183,59 @@ def _format_results(results: List[Dict[str, Any]], source: str) -> str:
 # router
 # ---------------------------------------------------------------------------
 
+def reasoning(state: GraphState) -> GraphState:
+    """First visit: classify MySQL vs vector vs both. After retrieval: judge sufficiency."""
+    if state.last_retrieval_source is None:
+        state.evaluation_route = None
+        return route_query(state)
+    return evaluate_retrieval(state)
+
+
+def evaluate_retrieval(state: GraphState) -> GraphState:
+    """LLM gate: enough context to answer, or loop back to MySQL / vector retrieval."""
+    if state.retrieval_iterations >= MAX_RETRIEVAL_ITERATIONS:
+        state.evaluation_route = "respond"
+        logger.warning(
+            "evaluate_retrieval: hit MAX_RETRIEVAL_ITERATIONS (%s) — responding with what we have",
+            MAX_RETRIEVAL_ITERATIONS,
+        )
+        return state
+
+    ctx = (state.context or "").strip() or "(no context retrieved)"
+    args = extract_tool_args(
+        prompt=evaluate_retrieval_prompt.format(
+            query=state.query or "",
+            conversation=format_conversation_history(state.messages[:-1]),
+            database_hint=state.database.value if state.database else "unknown",
+            last_source=state.last_retrieval_source or "unknown",
+            context=ctx,
+        ),
+        function=reasoning_evaluation_tool,
+    )
+    sufficient = bool(args.get("sufficient", True))
+    next_step = (args.get("next_step") or "respond").lower()
+    reason = (args.get("reason") or "").strip()
+    logger.info(
+        "evaluate_retrieval → sufficient=%s next_step=%s (%s)",
+        sufficient,
+        next_step,
+        reason,
+    )
+
+    if sufficient or next_step == "respond":
+        state.evaluation_route = "respond"
+        return state
+    if next_step == "mysql":
+        state.evaluation_route = "mysql_retrieval"
+        return state
+    if next_step == "vector":
+        state.evaluation_route = "vector_retrieval"
+        return state
+
+    state.evaluation_route = "respond"
+    return state
+
+
 def route_query(state: GraphState) -> GraphState:
     """Classify which database(s) to use, store the decision on the state."""
     args = extract_tool_args(
@@ -206,15 +262,11 @@ def route_after_router(state: GraphState) -> str:
     return "vector_retrieval"
 
 
-def route_after_mysql(state: GraphState) -> str:
-    """After MySQL: continue to vector if BOTH, or fall back if MySQL was empty."""
-    if state.database == DatabaseEnum.BOTH:
-        return "vector_retrieval"
-    if not state.mysql_results:
-        state.fallback_used = "mysql→vector"
-        logger.info("mysql returned no rows — falling back to vector search")
-        return "vector_retrieval"
-    return "respond"
+def route_from_reasoning(state: GraphState) -> str:
+    """After reasoning: initial route to a retriever, or post-retrieval → respond / retry."""
+    if state.last_retrieval_source is None:
+        return route_after_router(state)
+    return state.evaluation_route or "respond"
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +313,13 @@ def mysql_retrieval_node(state: GraphState) -> GraphState:
     state.sql_error = last_error if not results else None
     state.mysql_results = results or []
     state.context = (state.context or "") + _format_results(state.mysql_results, "MySQL")
+    state.last_retrieval_source = "mysql"
+    state.retrieval_iterations += 1
+    if not state.mysql_results and state.database == DatabaseEnum.BOTH:
+        state.fallback_used = state.fallback_used or "mysql_empty_both"
+        logger.info("mysql returned no rows with database=BOTH — reasoning may route to vector")
+    elif not state.mysql_results:
+        state.fallback_used = state.fallback_used or "mysql_empty"
     return state
 
 
@@ -280,6 +339,8 @@ def vector_retrieval_node(state: GraphState) -> GraphState:
 
     state.vector_results = results or []
     state.context = (state.context or "") + _format_results(state.vector_results, "Vector Search")
+    state.last_retrieval_source = "vector"
+    state.retrieval_iterations += 1
     return state
 
 

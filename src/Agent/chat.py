@@ -3,9 +3,8 @@ from langgraph.graph import StateGraph, START, END
 
 from src.Agent.graph.graph_state import GraphState
 from src.Agent.graph.graph_nodes import (
-    route_query,
-    route_after_router,
-    route_after_mysql,
+    reasoning,
+    route_from_reasoning,
     mysql_retrieval_node,
     vector_retrieval_node,
     respond_node,
@@ -20,32 +19,23 @@ class ChatService:
     def _build_graph():
         workflow = StateGraph(state_schema=GraphState)
 
-        workflow.add_node("route_query", route_query)
+        workflow.add_node("reasoning", reasoning)
         workflow.add_node("mysql_retrieval", mysql_retrieval_node)
         workflow.add_node("vector_retrieval", vector_retrieval_node)
         workflow.add_node("respond", respond_node)
 
-        workflow.add_edge(START, "route_query")
-
+        workflow.add_edge(START, "reasoning")
         workflow.add_conditional_edges(
-            "route_query",
-            route_after_router,
+            "reasoning",
+            route_from_reasoning,
             {
                 "mysql_retrieval": "mysql_retrieval",
-                "vector_retrieval": "vector_retrieval",
-            },
-        )
-
-        workflow.add_conditional_edges(
-            "mysql_retrieval",
-            route_after_mysql,
-            {
                 "vector_retrieval": "vector_retrieval",
                 "respond": "respond",
             },
         )
-
-        workflow.add_edge("vector_retrieval", "respond")
+        workflow.add_edge("mysql_retrieval", "reasoning")
+        workflow.add_edge("vector_retrieval", "reasoning")
         workflow.add_edge("respond", END)
 
         return workflow.compile()
